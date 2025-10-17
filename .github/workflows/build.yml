@@ -1,0 +1,136 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # Triggers on version tags like v1.0.0, v1.2.3, etc.
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            build_script: build:win
+            artifact_name: windows
+            artifact_path: |
+              dist/*.exe
+              dist/*.zip
+          
+          - os: macos-latest
+            build_script: build:mac
+            artifact_name: macos
+            artifact_path: |
+              dist/*.dmg
+              dist/*.zip
+          
+          - os: ubuntu-latest
+            build_script: build:linux
+            artifact_name: linux
+            artifact_path: |
+              dist/*.AppImage
+              dist/*.deb
+              dist/*.rpm
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build Electron app (${{ matrix.os }})
+        run: npm run ${{ matrix.build_script }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: List dist folder (debug)
+        run: ls -R dist
+        shell: bash
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-build
+          path: ${{ matrix.artifact_path }}
+          retention-days: 30
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: release-files/windows
+      
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: release-files/macos
+      
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: release-files/linux
+      
+      - name: List all files (debug)
+        run: find release-files -type f
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-files/**/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## ?? New Release: ${{ github.ref_name }}
+            
+            ### Downloads
+            
+            **Windows**
+            - `Image-Sorting-App-Setup-*.exe` - Full installer (recommended)
+            - `Image-Sorting-App-*.exe` - Portable version
+            
+            **macOS**
+            - `Image-Sorting-App-*.dmg` - Disk image (recommended)
+            - `Image-Sorting-App-mac.zip` - ZIP archive
+            
+            **Linux**
+            - `Image-Sorting-App-*.AppImage` - Universal package (recommended)
+            - `Image-Sorting-App-*.deb` - Debian/Ubuntu package
+            - `Image-Sorting-App-*.rpm` - RedHat/Fedora package
+            
+            ### Installation
+            
+            See the [README](https://github.com/rob49152/image-sorting/blob/main/README.md) for detailed installation instructions.
+            
+            ### What's Changed
+            
+            (Automatically generated release notes below)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
