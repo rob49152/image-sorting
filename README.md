@@ -43,6 +43,8 @@ A powerful Electron-based desktop application for efficiently organizing and man
 - **Dark Theme**: Easy on the eyes during long sorting sessions
 - **Bootstrap-Based**: Clean, modern, and responsive design
 - **Context Menus**: Right-click for quick actions
+  - **On Images**: Mark for comparison or delete
+  - **On Folders**: Create folders, shortcuts, or symbolic links
 - **Visual Selection**: Check-boxes and color-coded highlights
 - **Keyboard Shortcuts**: 
   - `Enter` - Move selected images
@@ -136,6 +138,20 @@ See [.github/WORKFLOWS.md](.github/WORKFLOWS.md) for details.
 2. Click **Favorites** button to view and manage saved folders
 3. Click any favorite to instantly load that folder
 4. Click the **X** to remove a favorite
+
+### Folder Management
+
+Right-click on any folder in the destination panel to:
+
+1. **Create New Folder Here** - Quickly create a new subfolder
+2. **Create Shortcut to Folder** - Create a Windows shortcut (.lnk) to any folder
+   - Works without admin rights
+   - Perfect for organizing frequently-used directories
+3. **Create Symbolic Link** - Create a symbolic link to another folder
+   - **Note**: On Windows, this requires either:
+     - Administrator privileges (right-click app ? "Run as administrator")
+     - Developer Mode enabled (Settings ? Update & Security ? For developers)
+   - **Tip**: Use shortcuts instead if you don't have admin access!
 
 ### Keyboard Shortcuts
 

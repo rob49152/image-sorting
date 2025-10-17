@@ -12,6 +12,7 @@ dist/
 temp_extract/
 dist/ImageSortingApp-win32-x64-old/
 dist/ImageSortingApp-win32-x64-old2/
+image_sorting_01/
 
 # Archives
 *.rar
