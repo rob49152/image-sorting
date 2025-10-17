@@ -1,0 +1,24 @@
+{
+  "name": "image-sorting-app",
+  "version": "1.0.0",
+  "description": "Electron app for sorting images with Bootstrap UI (dark theme)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-packager . ImageSortingApp --platform=win32 --arch=x64 --out=dist/ --overwrite",
+    "build-all": "electron-packager . ImageSortingApp --platform=all --arch=x64 --out=dist/ --overwrite",
+    "build-win": "electron-packager . ImageSortingApp --platform=win32 --arch=x64 --out=dist/ --overwrite",
+    "build-mac": "electron-packager . ImageSortingApp --platform=darwin --arch=x64 --out=dist/ --overwrite",
+    "build-linux": "electron-packager . ImageSortingApp --platform=linux --arch=x64 --out=dist/ --overwrite"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.0",
+    "bootstrap-icons": "^1.13.1",
+    "exif-parser": "^0.1.12",
+    "image-size": "^2.0.2"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}

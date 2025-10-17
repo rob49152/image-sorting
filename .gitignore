@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+
+# IDE folders
+.vs/
+.vscode/
+
+# Backup/temp folders
+temp_extract/
+dist/ImageSortingApp-win32-x64-old/
+dist/ImageSortingApp-win32-x64-old2/
+
+# Archives
+*.rar
+*.zip
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Test files (optional - remove if you want to commit these)
+test.html
+test.js

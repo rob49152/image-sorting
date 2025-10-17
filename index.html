@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Sorting App</title>
+  <link href="node_modules/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="node_modules/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="style.css" rel="stylesheet">
+</head>
+<body class="bg-dark text-light">
+  <div class="container-fluid py-3" style="min-height:calc(100vh - 70px);">
+    <div class="row" style="height:100%;">
+      <div class="col-9 left-panel">
+        <div class="d-flex align-items-center mb-2">
+          <button id="select-image-folder" class="btn btn-secondary btn-sm me-2">Select Image Folder</button>
+          <button id="move-selected" class="btn btn-secondary mx-2">Move Selected &rarr;</button>
+          <button id="delete-selected" class="btn btn-secondary mx-2">Delete Selected</button>
+        </div>
+        <h5>Images</h5>
+        <div id="image-list" class="light-table"></div>
+  <!-- Zoom buttons moved to footer -->
+      </div>
+      <div class="col-3 right-panel">
+        <button id="select-dir-folder" class="btn btn-secondary btn-sm mb-2 w-100">Select Destination Folder</button>
+        <h5>Folders</h5>
+        <div id="folder-list" class="folder-list"></div>
+      </div>
+    </div>
+  <!-- Removed duplicate images and folders view lists -->
+  </div>
+  <!-- Modal for image info -->
+  <div class="modal fade" id="imgModal" tabindex="-1" aria-labelledby="imgModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content bg-dark text-light">
+        <div class="modal-header">
+          <h5 class="modal-title" id="imgModalLabel">Image Info</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body modal-img-info" style="overflow-y:auto; max-height:92%;">
+          <div id="modal-img-container" class="modal-img-container">
+            <img id="modal-img-preview" class="modal-img-preview" src="" alt="Preview" style="display:block;max-width:100vw;max-height:70vh;width:auto;height:auto;margin:auto;object-fit:contain;">
+          </div>
+          <div id="modal-img-meta" class="modal-img-meta"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Footer -->
+  <footer class="app-footer bg-dark text-light py-3" style="position:fixed; left:0; right:0; bottom:0; z-index:100;">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-2 d-flex align-items-center">
+                <span id="footer-image-count" class="ms-3"></span>
+            </div>
+            <div class="col-5 d-flex justify-content-center align-items-center gap-2">
+                <button id="zoom-in" class="btn btn-outline-light btn-sm"><i class="bi bi-zoom-in"></i></button>
+                <button id="zoom-reset" class="btn btn-outline-light btn-sm" title="Reset Zoom"><i class="bi bi-arrow-counterclockwise"></i></button>
+                <button id="zoom-out" class="btn btn-outline-light btn-sm"><i class="bi bi-zoom-out"></i></button>
+            </div>
+            <div class="col-2 d-flex justify-content-center align-items-center gap-2">
+                <button id="Sort-by" class="btn btn-outline-light btn-sm">Sort order</button><span id="sort-type"></span>
+                <button id="Refresh-list" class="btn btn-outline-light btn-sm">Refresh list</button><span id="refresh-status"></span>
+            </div>
+        </div>
+  </footer>
+  <script src="node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="prompt.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
