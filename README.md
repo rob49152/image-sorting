@@ -76,13 +76,38 @@ A powerful Electron-based desktop application for efficiently organizing and man
 
 ### Building for Distribution
 
-To create a distributable version:
+**For automated builds with installers:**
 
 ```bash
 npm run build
 ```
 
+**Note for Windows users:** Building locally requires either:
+- **Developer Mode enabled** (Settings ? Update & Security ? For developers), or
+- **Running terminal as Administrator**
+
+Alternatively, use the simpler packager:
+```bash
+npm run pack
+```
+
+Or use **GitHub Actions** to build automatically (see below).
+
 This will create platform-specific builds in the `dist/` folder.
+
+### Automated Releases via GitHub Actions
+
+This project includes automated build workflows. To create a release:
+
+```bash
+# Update version and create tag
+npm version patch  # or minor, or major
+git push origin main --tags
+```
+
+GitHub Actions will automatically build installers for Windows, macOS, and Linux!
+
+See [.github/WORKFLOWS.md](.github/WORKFLOWS.md) for details.
 
 ## Usage
 
