@@ -336,7 +336,7 @@ function syncActionButtons() {
 })();
 
 
-// After top button bar setup, wire heart buttons
+ // After top button bar setup, wire heart buttons
 (function wireHeartButtons(){
   const leftHeart = document.getElementById('left-heart');
   const rightHeart = document.getElementById('right-heart');
@@ -886,254 +886,824 @@ function loadFolders() {
   if (!dirFolder) return;
   ipcRenderer.invoke('list-directories', dirFolder).then(folders => {
     folderList.innerHTML = '';
-    folders.forEach(folder => {
-      // Handle both string format (old) and object format (new)
-      const isObj = folder && typeof folder === 'object';
-      const name = isObj ? folder.name : String(folder);
-      const fullPath = isObj ? folder.path : require('path').join(dirFolder, String(folder));
-      const safeId = `radio-${name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    folders.forEach(folderObj => {
+      // Handle both object format {name, type, path} and string format
+      const folderName = typeof folderObj === 'string' ? folderObj : folderObj.name;
+      const folderPath = typeof folderObj === 'string' ? folderObj : folderObj.path;
       
       const item = document.createElement('div');
       item.className = 'folder-item';
       item.innerHTML = `
-        <input type="radio" name="folderRadio" value="${name}" id="${safeId}" data-path="${fullPath}">
-        <label for="${safeId}" class="ms-2">${name}</label>
+        <input type="radio" name="folderRadio" value="${folderPath}" id="radio-${folderName.replace(/[^a-zA-Z0-9]/g, '_')}">
+        <label for="radio-${folderName.replace(/[^a-zA-Z0-9]/g, '_')}" class="ms-2">${folderName}</label>
       `;
       folderList.appendChild(item);
-      
-      // Radio change handler
       item.querySelector('input[type=radio]').onchange = (e) => {
-        if (e.target.checked) {
-          selectedDir = fullPath; // Use the full path from data-path attribute
-          updateHeartStates();
-        }
-      };
-      
-      // Add right-click context menu for folder management
-      item.oncontextmenu = async (e) => {
-        e.preventDefault();
-        
-        // Remove any existing menu
-        let existing = document.getElementById('folder-context-menu');
-        if (existing) existing.remove();
-        
-        const menu = document.createElement('div');
-        menu.id = 'folder-context-menu';
-        menu.style.position = 'fixed';
-        menu.style.left = e.clientX + 'px';
-        menu.style.top = e.clientY + 'px';
-        menu.style.zIndex = 9999;
-        menu.style.background = '#222';
-        menu.style.color = '#fff';
-        menu.style.border = '1px solid #555';
-        menu.style.padding = '6px 0';
-        menu.style.borderRadius = '6px';
-        menu.style.boxShadow = '0 2px 8px #000a';
-        menu.style.minWidth = '220px';
-        
-        menu.innerHTML = `
-          <div class="ctx-item" data-action="create-folder" style="padding:8px 16px; cursor:pointer;">
-            <i class="bi bi-folder-plus me-2"></i>Create New Folder Here
-          </div>
-          <div class="ctx-sep" style="height:1px;background:#444;margin:4px 0;"></div>
-          <div class="ctx-item" data-action="create-shortcut" style="padding:8px 16px; cursor:pointer;">
-            <i class="bi bi-link-45deg me-2"></i>Create Shortcut to Folder
-          </div>
-          <div class="ctx-item" data-action="create-symlink" style="padding:8px 16px; cursor:pointer;">
-            <i class="bi bi-box-arrow-in-down-right me-2"></i>Create Symbolic Link
-          </div>
-        `;
-        
-        document.body.appendChild(menu);
-        
-        menu.addEventListener('click', async (ev) => {
-          const itemEl = ev.target.closest('.ctx-item');
-          if (!itemEl) return;
-          const action = itemEl.getAttribute('data-action');
-          
-          if (action === 'create-folder') {
-            // Prompt for folder name
-            const folderName = prompt('Enter new folder name:');
-            if (!folderName) {
-              menu.remove();
-              return;
-            }
-            
-            const newFolderPath = require('path').join(dirFolder, folderName);
-            
-            try {
-              await ipcRenderer.invoke('create-directory', newFolderPath);
-              // Refresh folder list
-              loadFolders();
-              // Show success message briefly
-              showToast('Folder created successfully!', 'success');
-            } catch (error) {
-              alert(`Failed to create folder: ${error.message}`);
-            }
-            menu.remove();
-            return;
-          }
-          
-          if (action === 'create-shortcut') {
-            // Select target folder
-            const targetPath = await ipcRenderer.invoke('select-folder');
-            if (!targetPath) {
-              menu.remove();
-              return;
-            }
-            
-            // Prompt for shortcut name
-            const shortcutName = prompt('Enter shortcut name:', require('path').basename(targetPath));
-            if (!shortcutName) {
-              menu.remove();
-              return;
-            }
-            
-            const shortcutPath = require('path').join(dirFolder, shortcutName + '.lnk');
-            
-            try {
-              await ipcRenderer.invoke('create-shortcut', targetPath, shortcutPath);
-              // Refresh folder list
-              loadFolders();
-              showToast('Shortcut created successfully!', 'success');
-            } catch (error) {
-              alert(`Failed to create shortcut: ${error.message}`);
-            }
-            menu.remove();
-            return;
-          }
-          
-          if (action === 'create-symlink') {
-            // Select target folder
-            const targetPath = await ipcRenderer.invoke('select-folder');
-            if (!targetPath) {
-              menu.remove();
-              return;
-            }
-            
-            // Prompt for link name
-            const linkName = prompt('Enter symbolic link name:', require('path').basename(targetPath));
-            if (!linkName) {
-              menu.remove();
-              return;
-            }
-            
-            const linkPath = require('path').join(dirFolder, linkName);
-            
-            try {
-              const result = await ipcRenderer.invoke('create-symlink', targetPath, linkPath);
-              if (result.success) {
-                // Refresh folder list
-                loadFolders();
-                showToast('Symbolic link created successfully!', 'success');
-              }
-            } catch (error) {
-              // Show detailed error message
-              const errorMsg = error.message;
-              if (errorMsg.includes('administrator privileges') || errorMsg.includes('Developer Mode')) {
-                // Show a more helpful modal
-                showSymlinkHelpModal(errorMsg);
-              } else {
-                alert(`Failed to create symbolic link: ${errorMsg}`);
-              }
-            }
-            menu.remove();
-            return;
-          }
-        });
-        
-        // Close menu on click elsewhere
-        const closeHandler = function() {
-          if (menu) menu.remove();
-          document.removeEventListener('click', closeHandler);
-          document.removeEventListener('contextmenu', closeHandler);
-        };
-        setTimeout(() => {
-          document.addEventListener('click', closeHandler);
-          document.addEventListener('contextmenu', closeHandler);
-        }, 0);
+        if (e.target.checked) selectedDir = folderPath;
+        updateHeartStates();
       };
     });
   });
 }
 
-// Helper function to show toast notifications
-function showToast(message, type = 'info') {
-  // Remove any existing toast
-  let existing = document.getElementById('toast-notification');
-  if (existing) existing.remove();
-  
-  const toast = document.createElement('div');
-  toast.id = 'toast-notification';
-  toast.style.position = 'fixed';
-  toast.style.bottom = '80px';
-  toast.style.right = '20px';
-  toast.style.zIndex = 10000;
-  toast.style.padding = '12px 20px';
-  toast.style.borderRadius = '6px';
-  toast.style.color = '#fff';
-  toast.style.fontSize = '14px';
-  toast.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-  toast.style.transition = 'opacity 0.3s';
-  toast.style.opacity = '1';
-  
-  // Set color based on type
-  if (type === 'success') {
-    toast.style.background = '#28a745';
-  } else if (type === 'error') {
-    toast.style.background = '#dc3545';
-  } else {
-    toast.style.background = '#17a2b8';
+async function moveSelectedImages() {
+  let destFolder = selectedDir;
+  // If selectedDir is just a folder name, prepend dirFolder to get the full path
+  if (destFolder && dirFolder && !require('path').isAbsolute(destFolder)) {
+    destFolder = require('path').join(dirFolder, destFolder);
   }
-  
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  
-  // Fade out and remove after 3 seconds
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  if (!destFolder) {
+    destFolder = await ipcRenderer.invoke('select-folder');
+    selectedDir = destFolder;
+    config.lastDestFolder = destFolder;
+    await ipcRenderer.invoke('set-config', config);
+  }
+  for (const img of selectedImages) {
+    const src = require('path').join(imageFolder, img);
+    const dest = require('path').join(destFolder, img);
+    await ipcRenderer.invoke('move-image', src, dest);
+    // Mark the image-item as moved and clear checkbox
+    const item = document.querySelector(`.image-item[data-img='${img}']`);
+    if (item) {
+      item.classList.add('moved');
+      item.style.opacity = '0.5';
+      item.style.pointerEvents = 'none';
+      const imgEl = item.querySelector('img');
+      if (imgEl) {
+        imgEl.style.filter = 'grayscale(100%) brightness(66%)';
+      }
+      const iconCheck = item.querySelector('.image-checkbox i');
+      if (iconCheck) {
+        iconCheck.classList.remove('bi-check-square-fill');
+        iconCheck.classList.add('bi-square');
+      }
+      // Also clear compare selection if present
+      if (compareSelected.has(img)) {
+        compareSelected.delete(img);
+        item.classList.remove('compare-selected');
+      }
+    }
+  }
+  selectedImages.clear();
+  updateFooterCount();
+  updateCompareButton();
 }
 
-// Helper function to show symlink help modal
-function showSymlinkHelpModal(errorMessage) {
-  // Remove any existing modal
-  let existing = document.getElementById('symlinkHelpModal');
-  if (existing) existing.remove();
-  
-  const modal = document.createElement('div');
-  modal.id = 'symlinkHelpModal';
-  modal.className = 'modal fade';
-  modal.tabIndex = -1;
-  modal.innerHTML = `
-    <div class="modal-dialog modal-dialog-centered">
+moveSelectedBtn.onclick = async () => {
+  if (selectedImages.size === 0) {
+    // Show warning modal for no images selected
+    let modal = document.getElementById('warnModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'warnModal';
+      modal.className = 'modal fade';
+      modal.tabIndex = -1;
+      modal.innerHTML = `
+        <div class="modal-dialog">
+          <div class="modal-content bg-dark text-light">
+            <div class="modal-header">
+              <h5 class="modal-title">Warning</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <p>Please select one or more images before moving.</p>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+    return;
+  }
+  if (!selectedDir) {
+    // Show warning modal for no destination folder
+    let modal = document.getElementById('warnModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'warnModal';
+      modal.className = 'modal fade';
+      modal.tabIndex = -1;
+      modal.innerHTML = `
+        <div class="modal-dialog">
+          <div class="modal-content bg-dark text-light">
+            <div class="modal-header">
+              <h5 class="modal-title">Warning</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <p>Please select a destination folder before moving images.</p>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+    return;
+  }
+  await moveSelectedImages();
+};
+
+document.getElementById('zoom-in').onclick = () => {
+  zoomLevel = Math.min(zoomLevel + 0.1, 2);
+  updateZoom();
+};
+document.getElementById('zoom-out').onclick = () => {
+  zoomLevel = Math.max(zoomLevel - 0.1, 0.5);
+  updateZoom();
+};
+document.getElementById('zoom-reset').onclick = () => {
+  zoomLevel = 1;
+  updateZoom();
+};
+function updateZoom() {
+  document.querySelector('.light-table').style.setProperty('--zoom', zoomLevel);
+}
+
+// Preference modal HTML
+const prefModalHtml = `
+  <div class="modal fade" id="prefModal" tabindex="-1" aria-labelledby="prefModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
       <div class="modal-content bg-dark text-light">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Administrator Privileges Required</h5>
+          <h5 class="modal-title" id="prefModalLabel">Preferences</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-          <p><strong>Creating symbolic links on Windows requires special permissions.</strong></p>
-          <p class="mb-3">${errorMessage}</p>
-          <div class="alert alert-info">
-            <strong>Quick Alternative:</strong> Use "Create Shortcut to Folder" instead! 
-            It works without admin rights and achieves the same result.
+          <div class="mb-3">
+            <label for="trashFolderInput" class="form-label">Default Trash Folder</label>
+            <input type="text" class="form-control" id="trashFolderInput" readonly>
+            <button id="selectTrashFolder" class="btn btn-secondary btn-sm mt-2">Select Folder</button>
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Got it</button>
+          <button type="button" class="btn btn-primary" id="savePrefs">Save</button>
         </div>
       </div>
     </div>
-  `;
-  
-  document.body.appendChild(modal);
-  const bsModal = new bootstrap.Modal(modal);
-  bsModal.show();
-  
-  // Clean up after modal is hidden
-  modal.addEventListener('hidden.bs.modal', () => {
-    modal.remove();
+  </div>
+`;
+document.body.insertAdjacentHTML('beforeend', prefModalHtml);
+
+// Re-add original preferences/config wiring (unchanged behavior)
+const prefModal = new bootstrap.Modal(document.getElementById('prefModal'));
+const trashFolderInput = document.getElementById('trashFolderInput');
+const selectTrashFolderBtn = document.getElementById('selectTrashFolder');
+const savePrefsBtn = document.getElementById('savePrefs');
+
+async function loadConfigUI() {
+  config = await ipcRenderer.invoke('get-config');
+  trashFolderInput.value = config.trashFolder || '';
+}
+
+selectTrashFolderBtn.onclick = async () => {
+  const folder = await ipcRenderer.invoke('select-folder');
+  if (folder) trashFolderInput.value = folder;
+};
+
+savePrefsBtn.onclick = async () => {
+
+  config.trashFolder = trashFolderInput.value;
+  await ipcRenderer.invoke('set-config', config);
+  prefModal.hide();
+};
+
+// When Preferences modal opens, refresh and show current trash folder path
+const prefModalEl = document.getElementById('prefModal');
+if (prefModalEl && !prefModalEl._showBound){
+  prefModalEl.addEventListener('show.bs.modal', async () => {
+    try {
+      const saved = await ipcRenderer.invoke('get-config');
+      if (saved && typeof saved === 'object') {
+        config = { ...config, ...saved };
+      }
+    } catch {}
+    trashFolderInput.value = config.trashFolder || '';
   });
+  prefModalEl._showBound = true;
+}
+
+// ----- App startup: load saved config and restore state -----
+(async () => {
+  try {
+    // Fetch persisted config from main process
+    const saved = await ipcRenderer.invoke('get-config');
+    if (saved && typeof saved === 'object') {
+      config = { ...saved };
+    }
+
+    // Restore sort prefs
+    if (config.sortBy) sortBy = config.sortBy;
+    if (config.sortOrder) sortOrder = config.sortOrder;
+
+    // Restore last image folder
+    if (config.lastImageFolder) {
+      imageFolder = config.lastImageFolder;
+      try {
+        images = await ipcRenderer.invoke('list-images', imageFolder);
+      } catch { images = []; }
+      loadedCount = 0;
+      if (imageList) imageList.innerHTML = '';
+      if (typeof sortImagesList === 'function') sortImagesList();
+      loadImagesBatch();
+    }
+
+    // Restore last destination folder and populate right panel
+    if (config.lastDestFolder) {
+      dirFolder = config.lastDestFolder;
+      loadFolders();
+    }
+
+    // Ensure footer reflects restored state
+    updateFooterCount();
+    updateCompareButton();
+    // Also ensure heart icons reflect current active folders and favorites
+    updateHeartStates();
+  } catch (e) {
+    console.error('Failed to load config on startup:', e);
+  }
+})();
+
+
+ // --- Favorites (image/destination) helpers ---
+function ensureFavConfig() {
+  if (!config) config = {};
+  if (!Array.isArray(config.favImageFolders)) config.favImageFolders = [];
+  if (!Array.isArray(config.favDestFolders)) config.favDestFolders = [];
+}
+function normPath(p) {
+  try {
+    const path = require('path');
+    return path.normalize(p).toLowerCase();
+  } catch { return (p || '').toLowerCase(); }
+}
+function getCurrentDestFullPath() {
+  const path = require('path');
+  if (selectedDir) {
+    if (path.isAbsolute(selectedDir)) return selectedDir;
+    if (dirFolder) return path.join(dirFolder, selectedDir);
+    return selectedDir;
+  }
+  return dirFolder || '';
+}
+function isFavorited(list, folder) {
+  if (!folder) return false;
+  const f = normPath(folder);
+  return list.some(x => normPath(x) === f);
+}
+function updateHeartStates() {
+  ensureFavConfig();
+  const leftBtn = document.getElementById('left-heart');
+  const rightBtn = document.getElementById('right-heart');
+  const leftPath = imageFolder || '';
+  const rightPath = getCurrentDestFullPath() || '';
+  const leftFav = isFavorited(config.favImageFolders, leftPath);
+  const rightFav = isFavorited(config.favDestFolders, rightPath);
+  if (leftBtn) {
+    leftBtn.disabled = !leftPath || leftFav;
+    leftBtn.innerHTML = leftFav ? '<i class="bi bi-heart-fill"></i>' : '<i class="bi bi-heart"></i>';
+  }
+  if (rightBtn) {
+    // Disable if there's no current destination path; else disable only when already favorited
+    rightBtn.disabled = !rightPath || rightFav;
+    rightBtn.innerHTML = rightFav ? '<i class="bi bi-heart-fill"></i>' : '<i class="bi bi-heart"></i>';
+  }
+}
+async function addFavorite(type) {
+  ensureFavConfig();
+  if (type === 'image') {
+    if (!imageFolder) return;
+    if (!isFavorited(config.favImageFolders, imageFolder)) {
+      config.favImageFolders.push(imageFolder);
+      await ipcRenderer.invoke('set-config', config);
+    }
+  } else if (type === 'dest') {
+    const dest = getCurrentDestFullPath();
+    if (!dest) return;
+    if (!isFavorited(config.favDestFolders, dest)) {
+      config.favDestFolders.push(dest);
+      await ipcRenderer.invoke('set-config', config);
+    }
+  }
+  updateHeartStates();
+}
+
+// ----- Favorites Modal (tabs for Image/Destination) -----
+(function setupFavoritesModal(){
+  function ensureModal(){
+    if (document.getElementById('favoritesModal')) return;
+    const html = `
+    <div class="modal fade" id="favoritesModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-light">
+          <div class="modal-header">
+            <h5 class="modal-title">Favorites</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <ul class="nav nav-tabs" id="favTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="fav-img-tab" data-bs-toggle="tab" data-bs-target="#fav-img" type="button" role="tab" aria-controls="fav-img" aria-selected="true">Image sources</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="fav-dest-tab" data-bs-toggle="tab" data-bs-target="#fav-dest" type="button" role="tab" aria-controls="fav-dest" aria-selected="false">Destination folders</button>
+              </li>
+            </ul>
+            <div class="tab-content pt-3">
+              <div class="tab-pane fade show active" id="fav-img" role="tabpanel" aria-labelledby="fav-img-tab">
+                <div id="favImageList" class="list-group"></div>
+              </div>
+              <div class="tab-pane fade" id="fav-dest" role="tabpanel" aria-labelledby="fav-dest-tab">
+                <div id="favDestList" class="list-group"></div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  }
+
+  function renderFavList(container, items, type){
+    container.innerHTML = '';
+    if (!items || items.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'text-muted';
+      empty.textContent = 'No favorites yet';
+      container.appendChild(empty);
+      return;
+    }
+    items.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center bg-dark text-light';
+      row.setAttribute('data-path', p);
+      row.innerHTML = `
+        <span class="text-truncate" style="max-width: 85%">${p}</span>
+        <button type="button" class="btn btn-sm btn-outline-danger fav-remove" title="Remove"><i class="bi bi-x-lg"></i></button>
+      `;
+      // click to select this favorite
+      row.addEventListener('click', async (e) => {
+        if (e.target.closest('.fav-remove')) return; // handled separately
+        if (type === 'image') {
+          await loadImageFolderFromPath(p);
+        } else {
+          await loadDestFolderFromPath(p);
+        }
+        const modalEl = document.getElementById('favoritesModal');
+        bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+      });
+      // remove button
+      row.querySelector('.fav-remove').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await removeFavorite(type, p);
+        // Re-render after removal
+        ensureFavConfig();
+        const data = type === 'image' ? config.favImageFolders : config.favDestFolders;
+        renderFavList(container, data, type);
+        updateHeartStates();
+      });
+      container.appendChild(row);
+    });
+  }
+
+  async function removeFavorite(type, pathVal){
+    ensureFavConfig();
+    if (type === 'image') {
+      config.favImageFolders = config.favImageFolders.filter(f => normPath(f) !== normPath(pathVal));
+      await ipcRenderer.invoke('set-config', config);
+    } else {
+      config.favDestFolders = config.favDestFolders.filter(f => normPath(f) !== normPath(pathVal));
+      await ipcRenderer.invoke('set-config', config);
+    }
+  }
+
+  async function loadImageFolderFromPath(pathVal){
+    imageFolder = pathVal;
+    config.lastImageFolder = imageFolder;
+    await ipcRenderer.invoke('set-config', config);
+    try { images = await ipcRenderer.invoke('list-images', imageFolder); } catch { images = []; }
+    loadedCount = 0;
+    if (imageList) imageList.innerHTML = '';
+    imageHashes = {}; duplicateHashes.clear();
+    if (typeof sortImagesList === 'function') sortImagesList();
+    loadImagesBatch();
+    updateFooterCount();
+    updateHeartStates();
+  }
+
+  async function loadDestFolderFromPath(pathVal){
+    dirFolder = pathVal;
+    config.lastDestFolder = dirFolder;
+    await ipcRenderer.invoke('set-config', config);
+    loadFolders();
+    updateHeartStates();
+  }
+
+  function openFavoritesModal(defaultTab){
+    ensureFavConfig();
+    ensureModal();
+    const modalEl = document.getElementById('favoritesModal');
+    const imgListEl = document.getElementById('favImageList');
+    const destListEl = document.getElementById('favDestList');
+    renderFavList(imgListEl, config.favImageFolders, 'image');
+    renderFavList(destListEl, config.favDestFolders, 'dest');
+    const m = bootstrap.Modal.getOrCreateInstance(modalEl);
+    m.show();
+    // activate requested tab
+    if (defaultTab === 'dest') {
+      const tabBtn = document.querySelector('#fav-dest-tab');
+      if (tabBtn) new bootstrap.Tab(tabBtn).show();
+    } else {
+      const tabBtn = document.querySelector('#fav-img-tab');
+      if (tabBtn) new bootstrap.Tab(tabBtn).show();
+    }
+  }
+
+  // Wire buttons
+  const leftFavBtn = document.getElementById('left-favorites');
+  if (leftFavBtn && !leftFavBtn._favoritesBound){
+    leftFavBtn.addEventListener('click', () => openFavoritesModal('image'));
+    leftFavBtn._favoritesBound = true;
+  }
+  const rightFavBtn = document.getElementById('right-favorites');
+  if (rightFavBtn && !rightFavBtn._favoritesBound){
+    rightFavBtn.addEventListener('click', () => openFavoritesModal('dest'));
+    rightFavBtn._favoritesBound = true;
+  }
+})();
+
+function openCompareModal() {
+  try {
+    // Fallback: if exactly two images are base-selected but not compare-marked, auto-mark them
+    if (compareSelected.size !== 2 && selectedImages && selectedImages.size === 2) {
+      const two = Array.from(selectedImages).slice(0, 2);
+      two.forEach(img => {
+        if (!compareSelected.has(img)) {
+          const el = document.querySelector(`.image-item[data-img='${img}']`);
+          if (el) el.classList.add('compare-selected');
+          compareSelected.add(img);
+        }
+      });
+      updateCompareButton();
+    }
+
+    if (compareSelected.size !== 2) return;
+
+    // Create modal markup if needed
+    if (!document.getElementById('compareModal')) {
+      const html = `
+        <div class="modal fade" id="compareModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content bg-dark text-light">
+              <div class="modal-header">
+                
+                <table style="width: 100%;">
+                  <tr>
+                  <td style="width: 33%; text-align: left;">
+                  <button id="deleteLeft" class="btn btn-danger btn-sm">Delete Left</button>
+                  </td>
+                  <td style="width: 33%; text-align: center;">
+                  <button id="overlayToggle" class="btn btn-outline-light btn-sm">Overlay</button>
+                  <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                  </td>
+                  <td style="width: 33%; text-align: right;">
+                  <button id="deleteRight" class="btn btn-danger btn-sm">Delete Right</button>
+                  </td>
+                  </tr>
+                </table>
+              </div>
+              <div class="modal-body p-0">
+                <div id="compareSideBySide" class="d-flex w-100 h-100">
+                  <div class="flex-fill position-relative border-end">
+                    <div class="cmp-viewport w-100 h-100 overflow-hidden position-relative">
+                      <img id="cmpLeft" class="position-absolute" style="top:50%;left:50%;transform:translate(-50%, -50%);max-width:none;max-height:none;" />
+                    </div>
+                  </div>
+                  <div class="flex-fill position-relative">
+                    <div class="cmp-viewport w-100 h-100 overflow-hidden position-relative">
+                      <img id="cmpRight" class="position-absolute" style="top:50%;left:50%;transform:translate(-50%, -50%);max-width:none;max-height:none;" />
+                    </div>
+                  </div>
+                </div>
+                <div id="compareOverlay" class="w-100 h-100 position-relative d-none">
+                  <div class="cmp-viewport w-100 h-100 overflow-hidden position-relative">
+                    <img id="ovBase" class="position-absolute" style="top:50%;left:50%;transform:translate(-50%, -50%);max-width:none;max-height:none;" />
+                    <img id="ovTop" class="position-absolute" style="top:50%;left:50%;transform:translate(-50%, -50%);mix-blend-mode:difference;max-width:none;max-height:none;" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    const el = document.getElementById('compareModal');
+    const cmpLeft = document.getElementById('cmpLeft');
+    const cmpRight = document.getElementById('cmpRight');
+    const ovBase = document.getElementById('ovBase');
+    const ovTop = document.getElementById('ovTop');
+    const compareSideBySide = document.getElementById('compareSideBySide');
+    const compareOverlay = document.getElementById('compareOverlay');
+    const overlayToggleBtn = document.getElementById('overlayToggle');
+    const deleteLeftBtn = document.getElementById('deleteLeft');
+    const deleteRightBtn = document.getElementById('deleteRight');
+
+    // Wire once
+    if (!el._wired) {
+      const state = { zoom: 1, panX: 0, panY: 0, dragging: false, lastX: 0, lastY: 0, overlay: false };
+      el._state = state;
+
+      function applyTransforms() {
+        const t = `translate(-50%, -50%) translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+        if (!state.overlay) {
+          if (cmpLeft) cmpLeft.style.transform = t;
+          if (cmpRight) cmpRight.style.transform = t;
+        } else {
+          if (ovBase) ovBase.style.transform = t;
+          if (ovTop) ovTop.style.transform = t;
+        }
+      }
+      function resetView() {
+        state.zoom = 1; state.panX = 0; state.panY = 0; state.overlay = false;
+        compareSideBySide.classList.remove('d-none');
+        compareOverlay.classList.add('d-none');
+        applyTransforms();
+      }
+      el._resetView = resetView;
+
+      function attachViewportEvents(view) {
+        if (!view) return;
+        view.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          const delta = -e.deltaY;
+          const factor = 1 + (delta * 0.001);
+          state.zoom = Math.min(8, Math.max(0.1, state.zoom * factor));
+          applyTransforms();
+        }, { passive: false });
+        view.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          state.dragging = true; state.lastX = e.clientX; state.lastY = e.clientY;
+        });
+        window.addEventListener('mousemove', (e) => {
+          if (!state.dragging) return;
+          const dx = e.clientX - state.lastX; const dy = e.clientY - state.lastY;
+          state.lastX = e.clientX; state.lastY = e.clientY;
+          state.panX += dx; state.panY += dy;
+          applyTransforms();
+        });
+        window.addEventListener('mouseup', () => { state.dragging = false; });
+      }
+      attachViewportEvents(compareSideBySide.querySelectorAll('.cmp-viewport')[0]);
+      attachViewportEvents(compareSideBySide.querySelectorAll('.cmp-viewport')[1]);
+      attachViewportEvents(compareOverlay.querySelector('.cmp-viewport'));
+
+      if (overlayToggleBtn) {
+        overlayToggleBtn.onclick = () => {
+          state.overlay = !state.overlay;
+          if (state.overlay) {
+            compareSideBySide.classList.add('d-none');
+            compareOverlay.classList.remove('d-none');
+          } else {
+            compareOverlay.classList.add('d-none');
+            compareSideBySide.classList.remove('d-none');
+          }
+          applyTransforms();
+        };
+      }
+
+      async function del(which) {
+        const arr = Array.from(compareSelected); if (arr.length < 1) return;
+        const target = which === 'left' ? arr[0] : arr[1];
+        let trash = config.trashFolder;
+        if (!trash) { trash = await ipcRenderer.invoke('select-folder'); config.trashFolder = trash; await ipcRenderer.invoke('set-config', config); }
+        const src = require('path').join(imageFolder, target);
+        const dest = require('path').join(trash, target);
+        await ipcRenderer.invoke('move-image', src, dest);
+        const gridItem = document.querySelector(`.image-item[data-img='${target}']`);
+        if (gridItem) {
+          gridItem.classList.add('deleted');
+          gridItem.style.opacity = '0.5';
+          gridItem.style.pointerEvents = 'none';
+          const iconCheck = gridItem.querySelector('.image-checkbox i');
+          if (iconCheck) { iconCheck.classList.remove('bi-check-square-fill'); iconCheck.classList.add('bi-square'); }
+        }
+        clearCompareSelection();
+        bootstrap.Modal.getOrCreateInstance(el).hide();
+      }
+      if (deleteLeftBtn) deleteLeftBtn.onclick = () => del('left');
+      if (deleteRightBtn) deleteRightBtn.onclick = () => del('right');
+
+      el.addEventListener('hidden.bs.modal', () => {
+        if (el._resetView) el._resetView();
+        clearCompareSelection();
+      });
+
+      el._wired = true;
+    }
+
+    // Set image sources and show
+    const [leftImg, rightImg] = Array.from(compareSelected);
+    const leftPath = require('path').join(imageFolder, leftImg);
+    const rightPath = require('path').join(imageFolder, rightImg);
+    if (cmpLeft) cmpLeft.src = leftPath;
+    if (cmpRight) cmpRight.src = rightPath;
+    if (ovBase) ovBase.src = leftPath;
+    if (ovTop) ovTop.src = rightPath;
+
+    if (el._resetView) el._resetView();
+    bootstrap.Modal.getOrCreateInstance(el).show();
+  } catch (err) {
+    console.error('openCompareModal error:', err);
+  }
+}
+
+// Listen for menu-triggered events to open Preferences
+ipcRenderer.on('open-preferences', () => {
+  try { prefModal.show(); } catch {}
+});
+ipcRenderer.on('show-preferences', () => {
+  try { prefModal.show(); } catch {}
+});
+ipcRenderer.on('menu-preferences', () => {
+  try { prefModal.show(); } catch {}
+});
+ipcRenderer.on('preferences', () => {
+  try { prefModal.show(); } catch {}
+});
+
+// ----- Help modal HTML -----
+const helpModalHtml = `
+  <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content bg-dark text-light">
+        <div class="modal-header">
+          <h5 class="modal-title" id="helpModalLabel">Help</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body" style="max-height:70vh; overflow:auto;">
+          <h6>Basics</h6>
+          <ul>
+            <li>Select an Image Folder on the left to view images.</li>
+            <li>Select a Destination Folder on the right.</li>
+            <li>Click an image tile to select/deselect it. </li>
+            <li>Double-click an image to open a window to view it larger and display image properties.</li>
+            <li>Use <strong>Move Selected</strong> to move selected images to the chosen destination.</li>
+            <li>Use <strong>Delete Selected</sstrong> to delete the chosen images.</li>
+            <li>Right-click an image for actions like <u>Mark to compare</u> or <u>Delete Image</u>.</li>
+            <li><strong>Note:</strong>
+                <div>- Moved or deleted images will be marked as such in the grid and cannot be re-selected</div>
+                <div>- Deleted images are moved to a Trash folder, which you can set in Preferences.</div></li>
+            </ul>
+          <h6>Compare</h6>
+          <ul>
+            <li>Ctrl+Left-Click images to mark up to two for comparison (blue highlight), then click Compare.</li>
+            <li>In the compare window, drag to pan, mouse wheel to zoom. Use Overlay mode to highlight differences</li>
+          </ul>
+          <h6>Favorites</h6>
+          <ul>
+            <li>Click the heart icon to favorite the current folder (source or destination). A filled heart indicates it is already favorited.</li>
+            <li>Click Favorites to open your favorites lists. Click a favorite to load it or X to remove it from the list.</li>
+          </ul>
+          <h6>Zoom Controls</h6>
+          <ul>
+            <li>Use the footer zoom controls to zoom in/out the grid, or Reset to return to default.</li>
+          </ul>
+          <h6>Shortcuts</h6>
+          <ul>
+            <li>Enter: Move selected images (if a destination is chosen).</li>
+            <li>F5: Reload current image folder, keeping sort order.</li>
+          </ul>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
+if (!document.getElementById('helpModal')) {
+  document.body.insertAdjacentHTML('beforeend', helpModalHtml);
+}
+const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
+
+// Listen for menu-triggered events to open Help
+ipcRenderer.on('open-help', () => { try { helpModal.show(); } catch {} });
+ipcRenderer.on('show-help', () => { try { helpModal.show(); } catch {} });
+ipcRenderer.on('menu-help', () => { try { helpModal.show(); } catch {} });
+ipcRenderer.on('help', () => { try { helpModal.show(); } catch {} });
+// Bind footer Help link to open Help modal if present
+(function bindHelpLink(){
+  const link = document.getElementById('help-show-link');
+  if (link && !link._bound){
+    link.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const el = document.getElementById('helpModal');
+      if (el) bootstrap.Modal.getOrCreateInstance(el).show();
+    });
+    link._bound = true;
+  }
+})();
+
+// ----- Sort Order modal HTML -----
+const sortModalHtml = `
+  <div class="modal fade" id="sortModal" tabindex="-1" aria-labelledby="sortModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content bg-dark text-light">
+        <div class="modal-header">
+          <h5 class="modal-title" id="sortModalLabel">Sort Images</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Sort By:</label>
+            <div class="btn-group-vertical w-100" role="group">
+              <button type="button" class="btn btn-outline-light sort-by-btn" data-sort="name">Name</button>
+              <button type="button" class="btn btn-outline-light sort-by-btn" data-sort="date">Date</button>
+              <button type="button" class="btn btn-outline-light sort-by-btn" data-sort="size">Size</button>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Order:</label>
+            <div class="btn-group-vertical w-100" role="group">
+              <button type="button" class="btn btn-outline-light sort-order-btn" data-order="asc">Ascending</button>
+              <button type="button" class="btn btn-outline-light sort-order-btn" data-order="desc">Descending</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" id="applySortBtn">Apply</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
+if (!document.getElementById('sortModal')) {
+  document.body.insertAdjacentHTML('beforeend', sortModalHtml);
+}
+const sortModal = new bootstrap.Modal(document.getElementById('sortModal'));
+
+// Wire Sort Order button in footer
+(function bindSortButton(){
+  const sortBtn = document.getElementById('Sort-by');
+  if (sortBtn && !sortBtn._sortBound){
+    sortBtn.addEventListener('click', () => {
+      // Highlight current sort settings
+      document.querySelectorAll('.sort-by-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.sort === sortBy);
+      });
+      document.querySelectorAll('.sort-order-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.order === sortOrder);
+      });
+      sortModal.show();
+    });
+    sortBtn._sortBound = true;
+  }
+})();
+
+// Handle sort selection clicks
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('sort-by-btn')) {
+    document.querySelectorAll('.sort-by-btn').forEach(btn => btn.classList.remove('active'));
+    e.target.classList.add('active');
+  }
+  if (e.target.classList.contains('sort-order-btn')) {
+    document.querySelectorAll('.sort-order-btn').forEach(btn => btn.classList.remove('active'));
+    e.target.classList.add('active');
+  }
+});
+
+// Apply sort button handler
+const applySortBtn = document.getElementById('applySortBtn');
+if (applySortBtn && !applySortBtn._sortApplyBound){
+  applySortBtn.addEventListener('click', async () => {
+    const selectedSortBy = document.querySelector('.sort-by-btn.active');
+    const selectedOrder = document.querySelector('.sort-order-btn.active');
+    
+    if (selectedSortBy && selectedOrder) {
+      sortBy = selectedSortBy.dataset.sort;
+      sortOrder = selectedOrder.dataset.order;
+      
+      // Save to config
+      config.sortBy = sortBy;
+      config.sortOrder = sortOrder;
+      await ipcRenderer.invoke('set-config', config);
+      
+      // Re-sort and reload images
+      sortImagesList();
+      loadedCount = 0;
+      imageList.innerHTML = '';
+      loadImagesBatch();
+      
+      sortModal.hide();
+    }
+  });
+  applySortBtn._sortApplyBound = true;
 }

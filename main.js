@@ -162,23 +162,49 @@ ipcMain.handle('list-directories', async (event, folderPath) => {
       continue;
     }
     
+    const itemPath = path.join(folderPath, f.name);
+    
+    // Check if it's a symbolic link first
+    try {
+      const stats = fs.lstatSync(itemPath);
+      if (stats.isSymbolicLink()) {
+        // It's a symlink - check if it points to a directory
+        try {
+          const targetStats = fs.statSync(itemPath); // follows symlink
+          if (targetStats.isDirectory()) {
+            const realPath = fs.realpathSync(itemPath);
+            results.push({
+              name: f.name,
+              type: 'symlink',
+              path: realPath // Use the real target path
+            });
+          }
+        } catch (err) {
+          // Broken symlink or not pointing to a directory, skip it
+          console.warn(`Skipping broken or invalid symlink: ${f.name}`);
+        }
+        continue;
+      }
+    } catch (err) {
+      console.warn(`Error checking symlink for ${f.name}:`, err.message);
+    }
+    
     // Add regular directories
     if (f.isDirectory()) {
       results.push({
         name: f.name,
         type: 'directory',
-        path: path.join(folderPath, f.name)
+        path: itemPath
       });
     }
     // Check for .lnk files (Windows shortcuts)
     else if (f.isFile() && f.name.endsWith('.lnk') && process.platform === 'win32') {
       try {
-        const shortcutPath = path.join(folderPath, f.name);
+        const shortcutPath = itemPath;
         const { execSync } = require('child_process');
         
         // Use PowerShell to resolve the shortcut target
-        const command = `powershell -Command "(New-Object -ComObject WScript.Shell).CreateShortcut('${shortcutPath}').TargetPath"`;
-        const targetPath = execSync(command, { encoding: 'utf8' }).trim();
+        const command = `powershell -Command "(New-Object -ComObject WScript.Shell).CreateShortcut('${shortcutPath}').TargetPath"`, targetPath = execSync(command, { encoding: 'utf8' }).trim();
         
         // Check if the target exists and is a directory
         if (targetPath && fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
