@@ -1,6 +1,6 @@
 {
   "name": "image-sorting-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Electron app for sorting images with Bootstrap UI (dark theme)",
   "main": "main.js",
   "scripts": {
