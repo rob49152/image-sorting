@@ -3,80 +3,8 @@
   "version": "1.0.0",
   "description": "Electron app for sorting images with Bootstrap UI (dark theme)",
   "main": "main.js",
-  "author": "rob49152",
-  "license": "MIT",
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --publish never",
-    "build:win": "electron-builder --win --publish never",
-    "build:mac": "electron-builder --mac --publish never",
-    "build:linux": "electron-builder --linux --publish never",
-    "build-all": "electron-builder --win --mac --linux --publish never",
-    "pack": "electron-packager . ImageSortingApp --platform=win32 --arch=x64 --out=dist/ --overwrite"
-  },
-  "build": {
-    "appId": "com.rob49152.imagesorting",
-    "productName": "Image Sorting App",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "**/*",
-      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
-      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
-      "!**/node_modules/*.d.ts",
-      "!**/node_modules/.bin",
-      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
-      "!.editorconfig",
-      "!**/._*",
-      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
-      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
-      "!**/{appveyor.yml,.travis.yml,circle.yml}",
-      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}",
-      "!dist",
-      "!temp_extract",
-      "!.github"
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "build/icon.ico"
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "category": "public.app-category.productivity",
-      "icon": "build/icon.icns"
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb",
-        "rpm"
-      ],
-      "category": "Utility",
-      "icon": "build/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
+    "start": "electron ."
   },
   "dependencies": {
     "bootstrap": "^5.3.0",
@@ -86,7 +14,6 @@
   },
   "devDependencies": {
     "electron": "^29.0.0",
-    "electron-builder": "^24.13.3",
     "electron-packager": "^17.1.2"
   }
 }

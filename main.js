@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
-let config = { trashFolder: '', lastImageFolder: '', lastDestFolder: '', defaultImageEditor: '' };
+let config = { trashFolder: '', lastImageFolder: '', lastDestFolder: '' };
 
 function loadConfig() {
   try {
@@ -24,15 +24,8 @@ function createWindow() {
       contextIsolation: false,
     },
     backgroundColor: '#222',
-    show: false,
   });
   win.loadFile('index.html');
-
-  // Show window and maximize if configured
-  if (config.startMaximized) {
-    win.maximize();
-  }
-  win.show();
 
   // Build menu with Preferences and Show Help under Help menu
   const menu = Menu.buildFromTemplate([
@@ -154,74 +147,9 @@ app.on('window-all-closed', () => {
 
 ipcMain.handle('list-directories', async (event, folderPath) => {
   const files = fs.readdirSync(folderPath, { withFileTypes: true });
-  const results = [];
-  
-  for (const f of files) {
-    // Skip hidden files and system folders
-    if (f.name.startsWith('.') || f.name === 'System Volume Information' || f.name === '$RECYCLE.BIN') {
-      continue;
-    }
-    
-    const itemPath = path.join(folderPath, f.name);
-    
-    // Check if it's a symbolic link first
-    try {
-      const stats = fs.lstatSync(itemPath);
-      if (stats.isSymbolicLink()) {
-        // It's a symlink - check if it points to a directory
-        try {
-          const targetStats = fs.statSync(itemPath); // follows symlink
-          if (targetStats.isDirectory()) {
-            const realPath = fs.realpathSync(itemPath);
-            results.push({
-              name: f.name,
-              type: 'symlink',
-              path: realPath // Use the real target path
-            });
-          }
-        } catch (err) {
-          // Broken symlink or not pointing to a directory, skip it
-          console.warn(`Skipping broken or invalid symlink: ${f.name}`);
-        }
-        continue;
-      }
-    } catch (err) {
-      console.warn(`Error checking symlink for ${f.name}:`, err.message);
-    }
-    
-    // Add regular directories
-    if (f.isDirectory()) {
-      results.push({
-        name: f.name,
-        type: 'directory',
-        path: itemPath
-      });
-    }
-    // Check for .lnk files (Windows shortcuts)
-    else if (f.isFile() && f.name.endsWith('.lnk') && process.platform === 'win32') {
-      try {
-        const shortcutPath = itemPath;
-        const { execSync } = require('child_process');
-        
-        // Use PowerShell to resolve the shortcut target
-        const command = `powershell -Command "(New-Object -ComObject WScript.Shell).CreateShortcut('${shortcutPath}').TargetPath"`, targetPath = execSync(command, { encoding: 'utf8' }).trim();
-        
-        // Check if the target exists and is a directory
-        if (targetPath && fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
-          results.push({
-            name: f.name.replace('.lnk', ''), // Remove .lnk extension for display
-            type: 'shortcut',
-            path: targetPath, // Use the actual target path
-            shortcutPath: shortcutPath // Keep original shortcut path for reference
-          });
-        }
-      } catch (error) {
-        console.warn(`Failed to resolve shortcut ${f.name}:`, error.message);
-      }
-    }
-  }
-  
-  return results;
+  return files
+    .filter(f => f.isDirectory() && !f.name.startsWith('.') && f.name !== 'System Volume Information' && f.name !== '$RECYCLE.BIN')
+    .map(f => f.name);
 });
 
 ipcMain.handle('move-image', async (event, src, dest) => {
@@ -267,6 +195,18 @@ ipcMain.handle('move-image', async (event, src, dest) => {
 ipcMain.handle('select-folder', async () => {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
   return result.filePaths[0];
+});
+
+// Select a file (e.g., preferred image editor executable)
+ipcMain.handle('select-file', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Executables', extensions: ['exe', 'bat', 'cmd', 'com'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+  return result.filePaths && result.filePaths[0] ? result.filePaths[0] : '';
 });
 
 ipcMain.handle('list-images', async (event, folderPath) => {
@@ -341,85 +281,6 @@ ipcMain.handle('get-image-info', async (event, imgPath) => {
   }
 });
 
-// Folder management IPC handlers
-ipcMain.handle('create-directory', async (event, dirPath) => {
-  try {
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-    }
-    return { success: true };
-  } catch (error) {
-    throw new Error(`Failed to create directory: ${error.message}`);
-  }
-});
-
-ipcMain.handle('create-shortcut', async (event, targetPath, shortcutPath) => {
-  try {
-    // On Windows, we'll create a .lnk file
-    if (process.platform === 'win32') {
-      const shell = require('child_process');
-      const command = `powershell "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('${shortcutPath}'); $s.TargetPath = '${targetPath}'; $s.Save()"`;
-      shell.execSync(command);
-    } else {
-      // On Unix-like systems, create a symbolic link
-      fs.symlinkSync(targetPath, shortcutPath.replace('.lnk', ''));
-    }
-    return { success: true };
-  } catch (error) {
-    throw new Error(`Failed to create shortcut: ${error.message}`);
-  }
-});
-
-ipcMain.handle('create-symlink', async (event, targetPath, linkPath) => {
-  try {
-    if (fs.existsSync(linkPath)) {
-      throw new Error('A file or folder with that name already exists');
-    }
-    
-    // On Windows, attempt symlink creation with mklink fallback
-    if (process.platform === 'win32') {
-      try {
-        fs.symlinkSync(targetPath, linkPath, 'dir');
-        return { success: true };
-      } catch (symlinkError) {
-        if (symlinkError.code === 'EPERM') {
-          // Try using mklink command as fallback
-          try {
-            const { execSync } = require('child_process');
-            const command = `mklink /D "${linkPath}" "${targetPath}"`;
-            execSync(command, { stdio: 'pipe' });
-            return { success: true };
-          } catch (mklinkError) {
-            throw new Error('Creating symbolic links requires administrator privileges.\n\nSolutions:\n1. Right-click the app and select "Run as administrator"\n2. Enable Developer Mode: Settings → Update & Security → For developers → Developer Mode\n3. Use "Create Shortcut" instead (works without admin rights)\n\nNote: You can restart the application as administrator to use this feature.');
-          }
-        }
-        throw symlinkError;
-      }
-    } else {
-      // On Unix-like systems, symlinks usually work without special privileges
-      fs.symlinkSync(targetPath, linkPath, 'dir');
-      return { success: true };
-    }
-  } catch (error) {
-    throw new Error(`Failed to create symbolic link: ${error.message}`);
-  }
-});
-
-// Check if running as administrator on Windows
-ipcMain.handle('check-admin-privileges', async () => {
-  if (process.platform === 'win32') {
-    try {
-      const { execSync } = require('child_process');
-      // Try to run a command that requires admin privileges
-      execSync('net session >nul 2>&1', { stdio: 'pipe' });
-      return { isAdmin: true };
-    } catch (error) {
-      return { isAdmin: false };
-    }
-  }
-  return { isAdmin: true }; // Non-Windows systems
-});
-
 ipcMain.handle('get-config', async () => config);
 ipcMain.handle('set-config', async (event, newConfig) => {
   config = { ...config, ...newConfig };
@@ -427,54 +288,21 @@ ipcMain.handle('set-config', async (event, newConfig) => {
   return config;
 });
 
-ipcMain.handle('select-file', async (event, options = {}) => {
-  const result = await dialog.showOpenDialog({
-    properties: ['openFile'],
-    ...options
-  });
-  if (result.canceled) return null;
-  return result.filePaths && result.filePaths[0] ? result.filePaths[0] : null;
-});
-
-ipcMain.handle('open-in-editor', async (event, editorPath, imagePath) => {
+// Open image in configured external editor
+ipcMain.handle('open-in-editor', async (event, imagePath) => {
   try {
+    if (!imagePath) return false;
+    const fs = require('fs');
     const { spawn } = require('child_process');
-    const path = require('path');
-    
-    if (!editorPath || !imagePath) {
-      throw new Error('Editor path and image path are required');
-    }
-    
-    if (!fs.existsSync(editorPath)) {
-      throw new Error(`Editor not found at: ${editorPath}`);
-    }
-    
-    if (!fs.existsSync(imagePath)) {
-      throw new Error(`Image not found at: ${imagePath}`);
-    }
-    
-    console.log('Opening in editor:', editorPath);
-    console.log('Image path:', imagePath);
-    
-    // Normalize paths to handle spaces and special characters
-    const normalizedEditorPath = path.normalize(editorPath);
-    const normalizedImagePath = path.normalize(imagePath);
-    
-    // Spawn the editor with the image path as argument
-    // The array elements are automatically quoted by spawn
-    const child = spawn(normalizedEditorPath, [normalizedImagePath], {
+    const exe = config && config.imageEditorPath ? config.imageEditorPath : '';
+    if (!exe || !fs.existsSync(exe)) return false;
+    const child = spawn(exe, [imagePath], {
       detached: true,
-      stdio: 'ignore',
-      shell: false
+      stdio: 'ignore'
     });
-    
     child.unref();
-    
-    console.log('Editor process spawned successfully');
-    
-    return { success: true };
-  } catch (error) {
-    console.error('Failed to open in editor:', error);
-    throw error;
+    return true;
+  } catch {
+    return false;
   }
 });

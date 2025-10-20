@@ -26,3 +26,5 @@ desktop.ini
 # Test files (optional - remove if you want to commit these)
 test.html
 test.js
+# Local backup script
+backup.bat

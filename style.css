@@ -63,10 +63,6 @@ body {
   background: #333;
   border-radius: 8px;
   padding: 10px;
-  flex: 1 1 auto;
-  overflow-y: auto;
-  min-height: 0;
-  max-height: calc(88vh - 30px);
 }
 .folder-item {
   background: #444;
@@ -91,6 +87,7 @@ body {
 }
 
 .right-panel {
+  height: 100%;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -142,23 +139,12 @@ body {
   flex-direction: row;
   gap: 32px;
 }
-.modal-img-container {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-  border-radius: 8px;
-  background: #1a1a1a;
-  min-height: 400px;
-}
 .modal-img-preview {
-  max-width: none;
-  max-height: none;
+  max-width: 350px;
+  max-height: 350px;
   border-radius: 8px;
-  width: auto;
-  height: auto;
 }
 .modal-img-meta {
-  width: 33%;
   color: #eee;
   font-size: 1em;
   word-break: break-word;
@@ -171,65 +157,4 @@ body {
 
 .btn-row-right {
     float: right
-}
-
-.h3, h3 {
-    font-size: 1rem !important;
-}
-
-.keyLabel {
-    font-size: small;
-}
-
-.keyValue {
-  float: right !important;
-  background-color: #666;
-  color: #EEE;
-}
-
-#positive-prompt {   
-  background-color: #666;
-  color: #EEE;
-}
-
-#negative-prompt {
-  background-color: #666;
-  color: #EEE;
-}
-
-#param-list {
-  background-color: #666;
-  color: #EEE;
-}
-
-/* Folder context menu styles */
-.folder-context-menu {
-  position: fixed;
-  background: #2c2c2c;
-  border: 1px solid #555;
-  border-radius: 6px;
-  padding: 4px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 10000;
-  min-width: 180px;
-  font-size: 14px;
-}
-
-.folder-context-menu-item {
-  padding: 8px 16px;
-  cursor: pointer;
-  color: #fff;
-  transition: background-color 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.folder-context-menu-item:hover {
-  background-color: #404040;
-}
-
-.folder-context-menu-item i {
-  width: 16px;
-  text-align: center;
 }

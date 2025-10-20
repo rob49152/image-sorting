@@ -53,6 +53,23 @@ function openCompareModal() { /* initialized later */ }
   }
 })();
 
+// Close any visible modal on middle mouse click without affecting other logic
+(function enableMiddleClickClose(){
+  if (document._midClickCloseBound) return;
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 1) return; // only middle mouse button
+    const modalEl = e.target && (e.target.closest ? e.target.closest('.modal.show') : null);
+    if (!modalEl) return;
+    try {
+      const m = bootstrap.Modal.getOrCreateInstance(modalEl);
+      m.hide();
+      e.preventDefault();
+      e.stopPropagation();
+    } catch {}
+  }, true); // capture to ensure it runs before other handlers
+  document._midClickCloseBound = true;
+})();
+
 // Inject minimal style for deleted items background
 (function ensureDeletedStyle(){
   const styleId = 'deleted-item-style';
@@ -336,7 +353,7 @@ function syncActionButtons() {
 })();
 
 
- // After top button bar setup, wire heart buttons
+// After top button bar setup, wire heart buttons
 (function wireHeartButtons(){
   const leftHeart = document.getElementById('left-heart');
   const rightHeart = document.getElementById('right-heart');
@@ -461,7 +478,7 @@ deleteSelectedBtn.onclick = async () => {
               <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-              <p>Are you sure you want to delete ${selectedImages.size} images?</p>
+              <p>Are you sure you want to delete <span id="confirmDeleteCount">${selectedImages.size}</span> images?</p>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
@@ -472,6 +489,16 @@ deleteSelectedBtn.onclick = async () => {
       `;
       document.body.appendChild(confirmModal);
     }
+    // Always update the displayed count before showing the modal
+    try {
+      const cnt = confirmModal.querySelector('#confirmDeleteCount');
+      if (cnt) {
+        cnt.textContent = String(selectedImages.size);
+      } else {
+        const p = confirmModal.querySelector('.modal-body p');
+        if (p) p.textContent = `Are you sure you want to delete ${selectedImages.size} images?`;
+      }
+    } catch {}
     const bsConfirmModal = new bootstrap.Modal(confirmModal);
     bsConfirmModal.show();
     // Attach handler for confirm
@@ -638,12 +665,136 @@ async function loadImagesBatch() {
       const modalMeta = document.getElementById('modal-img-meta');
       modalImg.src = require('path').join(imageFolder, img);
       modalImg.style.display = 'block';
-      modalImg.style.maxWidth = '100vw';
-      modalImg.style.maxHeight = '80vh';
-      modalImg.style.width = 'auto';
-      modalImg.style.height = 'auto';
       modalImg.style.margin = 'auto';
-      modalImg.style.objectFit = 'contain';
+      // Set up pan/zoom viewport around the image (once)
+      const bodyEl = modalEl.querySelector('.modal-body');
+      let viewport = document.getElementById('imgZoomViewport');
+      if (!viewport && bodyEl && modalImg && modalImg.parentElement === bodyEl) {
+        viewport = document.createElement('div');
+        viewport.id = 'imgZoomViewport';
+        viewport.style.position = 'relative';
+        viewport.style.width = '100%';
+        viewport.style.overflow = 'hidden';
+        viewport.style.background = 'transparent';
+        // Insert viewport before image and move image inside
+        bodyEl.insertBefore(viewport, modalImg);
+        viewport.appendChild(modalImg);
+      }
+      // Size viewport to fill available screen height beneath header
+      const headerEl = modalEl.querySelector('.modal-header');
+      function updateViewportHeight(){
+        try {
+          const headerH = headerEl ? headerEl.offsetHeight : 56; // fallback
+          const vpad = 24; // approximate body paddings/margins
+          const avail = Math.max(200, window.innerHeight - headerH - vpad);
+          if (viewport) viewport.style.height = avail + 'px';
+          if (bodyEl) bodyEl.style.maxHeight = avail + 'px';
+        } catch {}
+      }
+      updateViewportHeight();
+      // Configure image for absolute centering and transform-based pan/zoom
+      if (modalImg) {
+        modalImg.style.position = 'absolute';
+        modalImg.style.top = '50%';
+        modalImg.style.left = '50%';
+        modalImg.style.maxWidth = 'none';
+        modalImg.style.maxHeight = 'none';
+        modalImg.style.width = 'auto';
+        modalImg.style.height = 'auto';
+        modalImg.style.objectFit = 'contain';
+        modalImg.style.cursor = 'grab';
+      }
+      // Wire pan/zoom like compare modal (wire once per modal)
+      if (!modalEl._imgPZ) {
+        const state = { zoom: 1, panX: 0, panY: 0, dragging: false, lastX: 0, lastY: 0 };
+        function applyTransforms() {
+          if (!modalImg) return;
+          modalImg.style.transform = `translate(-50%, -50%) translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+        }
+        function resetView() {
+          state.zoom = 1; state.panX = 0; state.panY = 0; state.dragging = false;
+          applyTransforms();
+        }
+        // Compute a default fit (contain) and align the image top to the top of the viewport
+        function fitAndTopAlign() {
+          try {
+            const vp = document.getElementById('imgZoomViewport') || bodyEl;
+            if (!vp || !modalImg) return;
+            const rect = vp.getBoundingClientRect();
+            const iW = modalImg.naturalWidth || 1;
+            const iH = modalImg.naturalHeight || 1;
+            const zoom = Math.max(0.1, Math.min(rect.width / iW, rect.height / iH));
+            state.zoom = isFinite(zoom) ? zoom : 1;
+            state.panX = 0;
+            // Align top: panY = (scaledH - viewportH) / 2
+            const scaledH = iH * state.zoom;
+            state.panY = (scaledH - rect.height) / 2;
+            applyTransforms();
+          } catch {}
+        }
+        function onWheel(ev) {
+          ev.preventDefault();
+          const delta = -ev.deltaY;
+          const factor = 1 + (delta * 0.001);
+          state.zoom = Math.min(8, Math.max(0.1, state.zoom * factor));
+          applyTransforms();
+        }
+        function onMouseDown(ev) {
+          ev.preventDefault();
+          ev.stopPropagation(); // prevent modal click-to-close
+          state.dragging = true;
+          state.lastX = ev.clientX; state.lastY = ev.clientY;
+          if (modalImg) modalImg.style.cursor = 'grabbing';
+        }
+        function onMouseMove(ev) {
+          if (!state.dragging) return;
+          const dx = ev.clientX - state.lastX; const dy = ev.clientY - state.lastY;
+          state.lastX = ev.clientX; state.lastY = ev.clientY;
+          state.panX += dx; state.panY += dy;
+          applyTransforms();
+        }
+        function onMouseUp() {
+          state.dragging = false;
+          if (modalImg) modalImg.style.cursor = 'grab';
+        }
+        // Attach to viewport if present; else attach to bodyEl
+        const vp = document.getElementById('imgZoomViewport') || bodyEl;
+        if (vp) {
+          vp.addEventListener('wheel', onWheel, { passive: false });
+          vp.addEventListener('mousedown', onMouseDown);
+          vp.addEventListener('click', (ev)=> ev.stopPropagation()); // prevent modal close on click over image
+        }
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        // Keep viewport sized on window resize while modal is open
+        const onResize = () => updateViewportHeight();
+        window.addEventListener('resize', onResize);
+        // Reset view when modal hides and clean up dragging
+        modalEl.addEventListener('hidden.bs.modal', () => {
+          state.dragging = false;
+          if (modalImg) modalImg.style.cursor = 'grab';
+          resetView();
+          window.removeEventListener('resize', onResize);
+        });
+        modalEl._imgPZ = { state, applyTransforms, resetView, fitAndTopAlign };
+        // Initialize default view after image loads
+        const initFit = () => { fitAndTopAlign(); };
+        if (modalImg && modalImg.complete) {
+          initFit();
+        } else if (modalImg) {
+          modalImg.addEventListener('load', initFit, { once: true });
+        }
+      } else {
+        // Ensure transform is applied for new image
+        if (modalEl._imgPZ.applyTransforms) modalEl._imgPZ.applyTransforms();
+        updateViewportHeight();
+        // Apply default top-aligned fit for the newly opened image
+        if (modalEl._imgPZ.fitAndTopAlign) {
+          const doFit = () => modalEl._imgPZ.fitAndTopAlign();
+          if (modalImg && modalImg.complete) doFit();
+          else if (modalImg) modalImg.addEventListener('load', doFit, { once: true });
+        }
+      }
       // Get image info
       const imgPath = require('path').join(imageFolder, img);
       const info = await ipcRenderer.invoke('get-image-info', imgPath);
@@ -771,11 +922,114 @@ async function loadImagesBatch() {
       modalDialog.classList.remove('modal-lg');
       modalDialog.classList.add('modal-fullscreen');
       modal.show();
+      // Right-click actions modal for image preview (Delete / Send to editor)
+      function ensurePreviewActionsModal(){
+        if (document.getElementById('imgPreviewActionsModal')) return;
+        const html = `
+        <div class="modal fade" id="imgPreviewActionsModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content bg-dark text-light">
+              <div class="modal-body">
+                <button type="button" id="previewDeleteBtn" class="btn btn-danger w-100 mb-2">Delete this image</button>
+                <div style="height:1px;background:#444;margin:6px 0;"></div>
+                <button type="button" id="previewOpenEditorBtn" class="btn btn-secondary w-100">Send this image to image editor</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', html);
+        // Wire once: handlers use data set on the modal element
+        const mEl = document.getElementById('imgPreviewActionsModal');
+        const delBtn = mEl.querySelector('#previewDeleteBtn');
+        const openBtn = mEl.querySelector('#previewOpenEditorBtn');
+        if (delBtn && !delBtn._bound){
+          delBtn.addEventListener('click', async ()=>{
+            const tPath = mEl.dataset.imgPath || '';
+            const tName = mEl.dataset.imgName || '';
+            if (!tPath || !tName) return;
+            // Ensure trash configured
+            let trash = config.trashFolder;
+            if (!trash) {
+              trash = await ipcRenderer.invoke('select-folder');
+              if (!trash) return;
+              config.trashFolder = trash;
+              try { await ipcRenderer.invoke('set-config', config); } catch {}
+            }
+            const path = require('path');
+            const dest = path.join(trash, tName);
+            await ipcRenderer.invoke('move-image', tPath, dest);
+            // Mark the grid item as deleted if present
+            const itemRef = document.querySelector(`.image-item[data-img='${CSS.escape(tName)}']`);
+            if (itemRef) {
+              itemRef.classList.add('deleted');
+              itemRef.style.opacity = '0.5';
+              itemRef.style.pointerEvents = 'none';
+              const iconCheckRef = itemRef.querySelector('.image-checkbox i');
+              if (iconCheckRef) {
+                iconCheckRef.classList.remove('bi-check-square-fill');
+                iconCheckRef.classList.add('bi-square');
+              }
+              if (compareSelected.has(tName)) {
+                compareSelected.delete(tName);
+                itemRef.classList.remove('compare-selected');
+                updateCompareButton();
+              }
+            }
+            // Close both modals
+            try { bootstrap.Modal.getOrCreateInstance(mEl).hide(); } catch {}
+            try { bootstrap.Modal.getOrCreateInstance(modalEl).hide(); } catch {}
+          });
+          delBtn._bound = true;
+        }
+        if (openBtn && !openBtn._bound){
+          openBtn.addEventListener('click', async ()=>{
+            const tPath = mEl.dataset.imgPath || '';
+            if (!tPath) return;
+            // If no editor configured, open Preferences for user to set it
+            if (!config.imageEditorPath) {
+              try { prefModal.show(); } catch {}
+            }
+            try { await ipcRenderer.invoke('open-in-editor', tPath); } catch {}
+            try { bootstrap.Modal.getOrCreateInstance(mEl).hide(); } catch {}
+          });
+          openBtn._bound = true;
+        }
+      }
+      ensurePreviewActionsModal();
+      // Bind context menu on viewport to open actions modal
+      try {
+        const vpForMenu = document.getElementById('imgZoomViewport') || modalEl.querySelector('.modal-body');
+        if (vpForMenu && !vpForMenu._previewCtxBound){
+          vpForMenu.addEventListener('contextmenu', (ev)=>{
+            ev.preventDefault();
+            const mEl = document.getElementById('imgPreviewActionsModal');
+            if (!mEl) return;
+            // Set target metadata
+            const p = require('path');
+            const full = p.join(imageFolder, img);
+            mEl.dataset.imgPath = full;
+            mEl.dataset.imgName = img;
+            bootstrap.Modal.getOrCreateInstance(mEl).show();
+          });
+          vpForMenu._previewCtxBound = true;
+        }
+      } catch {}
+      // After modal is visible, recalc viewport and fit image to top
+      const onShown = () => {
+        try {
+          updateViewportHeight();
+          if (modalEl._imgPZ && typeof modalEl._imgPZ.fitAndTopAlign === 'function') {
+            modalEl._imgPZ.fitAndTopAlign();
+          }
+        } catch {}
+      };
+      modalEl.addEventListener('shown.bs.modal', onShown, { once: true });
       // Close modal on click anywhere
       const closeHandler = () => {
         modal.hide();
         modalEl.removeEventListener('click', closeHandler);
       };
+      // Do not close when interacting with the image viewport
       modalEl.addEventListener('click', closeHandler);
     };
     // Add right-click context menu for compare/delete
@@ -886,20 +1140,16 @@ function loadFolders() {
   if (!dirFolder) return;
   ipcRenderer.invoke('list-directories', dirFolder).then(folders => {
     folderList.innerHTML = '';
-    folders.forEach(folderObj => {
-      // Handle both object format {name, type, path} and string format
-      const folderName = typeof folderObj === 'string' ? folderObj : folderObj.name;
-      const folderPath = typeof folderObj === 'string' ? folderObj : folderObj.path;
-      
+    folders.forEach(folder => {
       const item = document.createElement('div');
       item.className = 'folder-item';
       item.innerHTML = `
-        <input type="radio" name="folderRadio" value="${folderPath}" id="radio-${folderName.replace(/[^a-zA-Z0-9]/g, '_')}">
-        <label for="radio-${folderName.replace(/[^a-zA-Z0-9]/g, '_')}" class="ms-2">${folderName}</label>
+        <input type="radio" name="folderRadio" value="${folder}" id="radio-${folder}">
+        <label for="radio-${folder}" class="ms-2">${folder}</label>
       `;
       folderList.appendChild(item);
       item.querySelector('input[type=radio]').onchange = (e) => {
-        if (e.target.checked) selectedDir = folderPath;
+        if (e.target.checked) selectedDir = folder;
         updateHeartStates();
       };
     });
@@ -1038,6 +1288,11 @@ const prefModalHtml = `
             <input type="text" class="form-control" id="trashFolderInput" readonly>
             <button id="selectTrashFolder" class="btn btn-secondary btn-sm mt-2">Select Folder</button>
           </div>
+          <div class="mb-3">
+            <label for="imageEditorInput" class="form-label">Preferred Image Editor</label>
+            <input type="text" class="form-control" id="imageEditorInput" readonly>
+            <button id="selectImageEditor" class="btn btn-secondary btn-sm mt-2">Select Program</button>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-primary" id="savePrefs">Save</button>
@@ -1053,10 +1308,13 @@ const prefModal = new bootstrap.Modal(document.getElementById('prefModal'));
 const trashFolderInput = document.getElementById('trashFolderInput');
 const selectTrashFolderBtn = document.getElementById('selectTrashFolder');
 const savePrefsBtn = document.getElementById('savePrefs');
+const imageEditorInput = document.getElementById('imageEditorInput');
+const selectImageEditorBtn = document.getElementById('selectImageEditor');
 
 async function loadConfigUI() {
   config = await ipcRenderer.invoke('get-config');
   trashFolderInput.value = config.trashFolder || '';
+  if (imageEditorInput) imageEditorInput.value = config.imageEditorPath || '';
 }
 
 selectTrashFolderBtn.onclick = async () => {
@@ -1064,9 +1322,17 @@ selectTrashFolderBtn.onclick = async () => {
   if (folder) trashFolderInput.value = folder;
 };
 
+if (selectImageEditorBtn) {
+  selectImageEditorBtn.onclick = async () => {
+    const file = await ipcRenderer.invoke('select-file');
+    if (file) imageEditorInput.value = file;
+  };
+}
+
 savePrefsBtn.onclick = async () => {
 
   config.trashFolder = trashFolderInput.value;
+  config.imageEditorPath = imageEditorInput ? imageEditorInput.value : config.imageEditorPath;
   await ipcRenderer.invoke('set-config', config);
   prefModal.hide();
 };
@@ -1082,6 +1348,7 @@ if (prefModalEl && !prefModalEl._showBound){
       }
     } catch {}
     trashFolderInput.value = config.trashFolder || '';
+    if (imageEditorInput) imageEditorInput.value = config.imageEditorPath || '';
   });
   prefModalEl._showBound = true;
 }
@@ -1128,7 +1395,7 @@ if (prefModalEl && !prefModalEl._showBound){
 })();
 
 
- // --- Favorites (image/destination) helpers ---
+// --- Favorites (image/destination) helpers ---
 function ensureFavConfig() {
   if (!config) config = {};
   if (!Array.isArray(config.favImageFolders)) config.favImageFolders = [];
@@ -1505,6 +1772,95 @@ function openCompareModal() {
         clearCompareSelection();
       });
 
+      // Ensure right-click actions modal for compare (Delete both / Send both to editor)
+      function ensureCompareActionsModal(){
+        if (document.getElementById('compareActionsModal')) return;
+        const html = `
+        <div class="modal fade" id="compareActionsModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content bg-dark text-light">
+              <div class="modal-body">
+                <button type="button" id="cmpDeleteBothBtn" class="btn btn-danger w-100 mb-2">Delete both images</button>
+                <div style="height:1px;background:#444;margin:6px 0;"></div>
+                <button type="button" id="cmpOpenBothBtn" class="btn btn-secondary w-100">Send both images to Image Editor</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', html);
+        const mEl = document.getElementById('compareActionsModal');
+        const delBtn = mEl.querySelector('#cmpDeleteBothBtn');
+        const openBtn = mEl.querySelector('#cmpOpenBothBtn');
+        if (delBtn && !delBtn._bound){
+          delBtn.addEventListener('click', async ()=>{
+            try {
+              const pair = (el._currentImages && el._currentImages.paths) ? el._currentImages : null;
+              if (!pair || !pair.paths || pair.paths.length !== 2) return;
+              // Ensure trash folder
+              let trash = config.trashFolder;
+              if (!trash) {
+                trash = await ipcRenderer.invoke('select-folder');
+                if (!trash) return;
+                config.trashFolder = trash;
+                try { await ipcRenderer.invoke('set-config', config); } catch {}
+              }
+              const path = require('path');
+              // Move both
+              for (let i=0;i<2;i++){
+                const src = pair.paths[i];
+                const name = pair.names[i];
+                const dest = path.join(trash, name);
+                await ipcRenderer.invoke('move-image', src, dest);
+                const itemRef = document.querySelector(`.image-item[data-img='${CSS.escape(name)}']`);
+                if (itemRef) {
+                  itemRef.classList.add('deleted');
+                  itemRef.style.opacity = '0.5';
+                  itemRef.style.pointerEvents = 'none';
+                  const iconCheckRef = itemRef.querySelector('.image-checkbox i');
+                  if (iconCheckRef) {
+                    iconCheckRef.classList.remove('bi-check-square-fill');
+                    iconCheckRef.classList.add('bi-square');
+                  }
+                }
+              }
+              clearCompareSelection();
+              try { bootstrap.Modal.getOrCreateInstance(mEl).hide(); } catch {}
+              try { bootstrap.Modal.getOrCreateInstance(el).hide(); } catch {}
+            } catch {}
+          });
+          delBtn._bound = true;
+        }
+        if (openBtn && !openBtn._bound){
+          openBtn.addEventListener('click', async ()=>{
+            try {
+              const pair = (el._currentImages && el._currentImages.paths) ? el._currentImages : null;
+              if (!pair || !pair.paths || pair.paths.length !== 2) return;
+              if (!config.imageEditorPath) { try { prefModal.show(); } catch {} }
+              await ipcRenderer.invoke('open-in-editor', pair.paths[0]);
+              await ipcRenderer.invoke('open-in-editor', pair.paths[1]);
+              try { bootstrap.Modal.getOrCreateInstance(mEl).hide(); } catch {}
+            } catch {}
+          });
+          openBtn._bound = true;
+        }
+      }
+      ensureCompareActionsModal();
+      if (!el._ctxBound){
+        const bindCtx = (node)=>{
+          if (!node || node._ctxBound) return;
+          node.addEventListener('contextmenu', (ev)=>{
+            ev.preventDefault();
+            const mEl = document.getElementById('compareActionsModal');
+            if (!mEl) return;
+            bootstrap.Modal.getOrCreateInstance(mEl).show();
+          });
+          node._ctxBound = true;
+        };
+        bindCtx(compareSideBySide);
+        bindCtx(compareOverlay);
+        el._ctxBound = true;
+      }
+
       el._wired = true;
     }
 
@@ -1518,6 +1874,11 @@ function openCompareModal() {
     if (ovTop) ovTop.src = rightPath;
 
     if (el._resetView) el._resetView();
+    // Store current image names and absolute paths for actions modal
+    el._currentImages = {
+      names: [leftImg, rightImg],
+      paths: [leftPath, rightPath]
+    };
     bootstrap.Modal.getOrCreateInstance(el).show();
   } catch (err) {
     console.error('openCompareModal error:', err);
@@ -1611,99 +1972,78 @@ ipcRenderer.on('help', () => { try { helpModal.show(); } catch {} });
   }
 })();
 
-// ----- Sort Order modal HTML -----
-const sortModalHtml = `
-  <div class="modal fade" id="sortModal" tabindex="-1" aria-labelledby="sortModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content bg-dark text-light">
-        <div class="modal-header">
-          <h5 class="modal-title" id="sortModalLabel">Sort Images</h5>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">Sort By:</label>
-            <div class="btn-group-vertical w-100" role="group">
-              <button type="button" class="btn btn-outline-light sort-by-btn" data-sort="name">Name</button>
-              <button type="button" class="btn btn-outline-light sort-by-btn" data-sort="date">Date</button>
-              <button type="button" class="btn btn-outline-light sort-by-btn" data-sort="size">Size</button>
+// ----- Sort Order Modal and Button Binding (footer 'Sort order' button) -----
+(function setupSortOrderModal(){
+  function ensureSortModal(){
+    if (document.getElementById('sortModal')) return;
+    const html = `
+    <div class="modal fade" id="sortModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content bg-dark text-light">
+          <div class="modal-header">
+            <h5 class="modal-title">Sort Images</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Sort By:</label>
+              <select id="sortBySelect" class="form-select bg-dark text-light">
+                <option value="name">Name</option>
+                <option value="date">Date</option>
+                <option value="size">Size</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Sort Order:</label>
+              <select id="sortOrderSelect" class="form-select bg-dark text-light">
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
             </div>
           </div>
-          <div class="mb-3">
-            <label class="form-label">Order:</label>
-            <div class="btn-group-vertical w-100" role="group">
-              <button type="button" class="btn btn-outline-light sort-order-btn" data-order="asc">Ascending</button>
-              <button type="button" class="btn btn-outline-light sort-order-btn" data-order="desc">Descending</button>
-            </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" id="applySortBtn">Apply</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-primary" id="applySortBtn">Apply</button>
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         </div>
       </div>
-    </div>
-  </div>
-`;
-if (!document.getElementById('sortModal')) {
-  document.body.insertAdjacentHTML('beforeend', sortModalHtml);
-}
-const sortModal = new bootstrap.Modal(document.getElementById('sortModal'));
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  }
 
-// Wire Sort Order button in footer
-(function bindSortButton(){
   const sortBtn = document.getElementById('Sort-by');
   if (sortBtn && !sortBtn._sortBound){
     sortBtn.addEventListener('click', () => {
-      // Highlight current sort settings
-      document.querySelectorAll('.sort-by-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.sort === sortBy);
-      });
-      document.querySelectorAll('.sort-order-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.order === sortOrder);
-      });
-      sortModal.show();
+      ensureSortModal();
+      const modalEl = document.getElementById('sortModal');
+      const sortBySelect = document.getElementById('sortBySelect');
+      const sortOrderSelect = document.getElementById('sortOrderSelect');
+      if (sortBySelect) sortBySelect.value = typeof sortBy === 'string' ? sortBy : 'name';
+      if (sortOrderSelect) sortOrderSelect.value = typeof sortOrder === 'string' ? sortOrder : 'asc';
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modal.show();
+
+      const applyBtn = document.getElementById('applySortBtn');
+      if (applyBtn && !applyBtn._applyBound){
+        applyBtn.addEventListener('click', async () => {
+          // Persist and apply new sort settings
+          const newBy = sortBySelect ? sortBySelect.value : 'name';
+          const newOrder = sortOrderSelect ? sortOrderSelect.value : 'asc';
+          sortBy = newBy; sortOrder = newOrder;
+          config.sortBy = sortBy; config.sortOrder = sortOrder;
+          try { await ipcRenderer.invoke('set-config', config); } catch {}
+          if (typeof sortImagesList === 'function') sortImagesList();
+          loadedCount = 0;
+          if (imageList) imageList.innerHTML = '';
+          loadImagesBatch();
+          // Optional: reflect current sort in footer span if present
+          const sortType = document.getElementById('sort-type');
+          if (sortType) sortType.textContent = ` ${sortBy} (${sortOrder})`;
+          modal.hide();
+        });
+        applyBtn._applyBound = true;
+      }
     });
     sortBtn._sortBound = true;
   }
 })();
-
-// Handle sort selection clicks
-document.addEventListener('click', (e) => {
-  if (e.target.classList.contains('sort-by-btn')) {
-    document.querySelectorAll('.sort-by-btn').forEach(btn => btn.classList.remove('active'));
-    e.target.classList.add('active');
-  }
-  if (e.target.classList.contains('sort-order-btn')) {
-    document.querySelectorAll('.sort-order-btn').forEach(btn => btn.classList.remove('active'));
-    e.target.classList.add('active');
-  }
-});
-
-// Apply sort button handler
-const applySortBtn = document.getElementById('applySortBtn');
-if (applySortBtn && !applySortBtn._sortApplyBound){
-  applySortBtn.addEventListener('click', async () => {
-    const selectedSortBy = document.querySelector('.sort-by-btn.active');
-    const selectedOrder = document.querySelector('.sort-order-btn.active');
-    
-    if (selectedSortBy && selectedOrder) {
-      sortBy = selectedSortBy.dataset.sort;
-      sortOrder = selectedOrder.dataset.order;
-      
-      // Save to config
-      config.sortBy = sortBy;
-      config.sortOrder = sortOrder;
-      await ipcRenderer.invoke('set-config', config);
-      
-      // Re-sort and reload images
-      sortImagesList();
-      loadedCount = 0;
-      imageList.innerHTML = '';
-      loadImagesBatch();
-      
-      sortModal.hide();
-    }
-  });
-  applySortBtn._sortApplyBound = true;
-}
